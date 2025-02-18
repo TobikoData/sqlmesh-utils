@@ -6,9 +6,10 @@ from sqlmesh.core.model.kind import TimeColumn
 from sqlglot import exp
 from sqlmesh.utils.date import make_inclusive
 from sqlmesh.utils.errors import ConfigError, SQLMeshError
-from pydantic import field_validator, model_validator, ValidationInfo
-from sqlmesh.utils.pydantic import list_of_fields_validator, PydanticModel
-from sqlmesh.utils.date import TimeLike
+import pydantic
+from pydantic import field_validator, model_validator, ValidationInfo, BaseModel
+from sqlmesh.utils.pydantic import list_of_fields_validator
+from sqlmesh.utils.date import TimeLike, to_time_column
 from sqlmesh.core.engine_adapter.base import MERGE_SOURCE_ALIAS, MERGE_TARGET_ALIAS
 from typing_extensions import Self
 
@@ -17,7 +18,13 @@ if t.TYPE_CHECKING:
     from sqlmesh.core.engine_adapter._typing import QueryOrDF
 
 
-class MaterializationProperties(PydanticModel):
+class MaterializationProperties(BaseModel):
+    # this config is required or we get an error like:
+    # Unable to generate pydantic-core schema for <class 'sqlglot.expressions.Expression'>
+    model_config = pydantic.ConfigDict(
+        arbitrary_types_allowed=True,
+    )
+
     time_column: TimeColumn
     # this is deliberately primary_key instead of unique_key to direct away from INCREMENTAL_BY_UNIQUE_KEY
     primary_key: t.List[exp.Expression]
@@ -49,10 +56,10 @@ class MaterializationProperties(PydanticModel):
     @classmethod
     def from_model(cls: t.Type[Self], model: Model) -> Self:
         return cls.model_validate(
-            {
-                "time_column": model.custom_materialization_properties.get("time_column"),
-                "primary_key": model.custom_materialization_properties.get("primary_key"),
-            }
+            dict(
+                time_column=model.custom_materialization_properties.get("time_column"),
+                primary_key=model.custom_materialization_properties.get("primary_key"),
+            )
         )
 
 
@@ -73,10 +80,21 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(CustomMaterialization):
 
         start: TimeLike = kwargs["start"]
         end: TimeLike = kwargs["end"]
-        kind = MaterializationProperties.from_model(model)
+        properties = MaterializationProperties.from_model(model)
+
+        time_column_type = model.columns_to_types_or_raise.get(properties.time_column.column.name)
+        if not time_column_type:
+            raise ConfigError(
+                f"Time column '{properties.time_column.column.sql(dialect=model.dialect)}' not found in model '{model.name}'."
+            )
 
         low, high = [
-            model.convert_to_time_column(dt, model.columns_to_types)
+            to_time_column(
+                dt,
+                time_column_type,
+                model.dialect,
+                properties.time_column.format,  # todo: we have no access to the project `time_column_format` field here
+            )
             for dt in make_inclusive(start, end, model.dialect)
         ]
 
@@ -89,7 +107,7 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(CustomMaterialization):
         # on the target side to help prevent a full table scan when loading intervals
         betweens = [
             exp.Between(
-                this=kind.time_column.column.transform(lambda n: _inject_alias(n, alias)),
+                this=properties.time_column.column.transform(lambda n: _inject_alias(n, alias)),
                 low=low,
                 high=high,
             )
@@ -100,7 +118,7 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(CustomMaterialization):
             target_table=table_name,
             source_table=query_or_df,
             columns_to_types=model.columns_to_types,
-            unique_key=kind.primary_key,
+            unique_key=properties.primary_key,
             merge_filter=exp.and_(*betweens),
         )
 
