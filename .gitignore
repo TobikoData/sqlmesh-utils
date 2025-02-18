@@ -1,0 +1,18 @@
+# IDE's, build scripts etc
+.vscode
+.pytest_cache
+.mypy_cache
+.ruff_cache
+__pycache__
+*.egg-info
+venv*/
+build/
+dist/
+test-results/
+.env
+_sqlmesh_upstream/
+
+# SQLMesh itself
+.cache/
+logs/
+sqlmesh_utils/_version.py

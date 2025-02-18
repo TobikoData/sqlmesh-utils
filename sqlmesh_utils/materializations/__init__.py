@@ -1,0 +1,3 @@
+from sqlmesh_utils.materializations.non_idempotent_incremental_by_time_range import (
+    NonIdempotentIncrementalByTimeRangeMaterialization as NonIdempotentIncrementalByTimeRangeMaterialization,
+)
