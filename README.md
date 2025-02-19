@@ -64,10 +64,6 @@ The properties are as follows:
 
 This is the column in the dataset that contains the timestamp. It follows the [same syntax](https://sqlmesh.readthedocs.io/en/latest/concepts/models/model_kinds/#time-column) as upstream `INCREMENTAL_BY_TIME_RANGE`.
 
-> [!NOTE]
-> Unlike upstream `INCREMENTAL_BY_TIME_RANGE`, the `time_column` is **not** automatically added to the partition columns when the table is created.
-> If need to partiton by the `time_column`, then you can add it to the model [partitioned_by](https://sqlmesh.readthedocs.io/en/latest/concepts/models/overview/#partitioned_by) property manually
-
 #### primary_key
 
 This is the column or combination of columns that uniquely identifies a record.

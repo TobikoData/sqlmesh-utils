@@ -5,11 +5,12 @@ import sqlmesh.core.dialect as d
 from sqlglot import exp, parse_one
 from sqlmesh_utils.materializations.non_idempotent_incremental_by_time_range import (
     NonIdempotentIncrementalByTimeRangeMaterialization,
-    MaterializationProperties,
+    NonIdempotentIncrementalByTimeRangeKind,
 )
 from tests.materializations.conftest import to_sql_calls, MockedEngineAdapterMaker
 from sqlmesh.core.engine_adapter.trino import TrinoEngineAdapter
 from sqlmesh.utils.errors import ConfigError
+from pydantic import ValidationError
 from sqlmesh.utils.date import to_timestamp, now
 from sqlmesh.core.macros import RuntimeStage
 
@@ -20,11 +21,7 @@ ModelMaker = t.Callable[..., Model]
 def make_model() -> ModelMaker:
     def _make(properties: t.Union[str, t.List[str]], dialect: t.Optional[str] = None) -> Model:
         if isinstance(properties, list):
-            properties = ",\n".join(properties)
-
-        properties_sql = ""
-        if properties:
-            properties_sql = f"materialization_properties ({properties}),"
+            properties = ",\n".join(properties) + ","
 
         dialect_sql = f"dialect {dialect}," if dialect else ""
 
@@ -33,7 +30,7 @@ def make_model() -> ModelMaker:
             name test.model,
             kind CUSTOM (
                 materialization 'non_idempotent_incremental_by_time_range',
-                {properties_sql}
+                {properties}
                 batch_size 1,
                 batch_concurrency 1
             ),
@@ -42,38 +39,41 @@ def make_model() -> ModelMaker:
             end '2020-01-10'
         );
 
-        SELECT name, ds FROM upstream.table WHERE ds BETWEEN @start_ts AND @end_ts;
+        SELECT cast(name as varchar) as name, cast(ds as timestamp) as ds FROM upstream.table WHERE ds BETWEEN @start_ts AND @end_ts;
         """)
         return load_sql_based_model(expressions=expressions)
 
     return _make
 
 
-def test_materialization_properties(make_model: ModelMaker):
+def test_kind(make_model: ModelMaker):
     # basic usage
-    model = make_model(["time_column = ds", "primary_key = (id, ds)"])
-    kind = MaterializationProperties.from_model(model)
+    model = make_model(["time_column ds", "primary_key (id, ds)"])
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
 
-    assert kind.time_column.column == exp.to_column("ds", quoted=True)
-    assert kind.primary_key == [exp.to_column("id", quoted=True), exp.to_column("ds", quoted=True)]
+    assert model.kind.time_column.column == exp.to_column("ds", quoted=True)
+    assert model.kind.primary_key == [
+        exp.to_column("id", quoted=True),
+        exp.to_column("ds", quoted=True),
+    ]
 
     # required fields
-    with pytest.raises(ConfigError, match=r"Invalid time_column"):
+    with pytest.raises(ValidationError, match=r"time_column\n.*Field required"):
         model = make_model([])
-        MaterializationProperties.from_model(model)
 
-    with pytest.raises(ConfigError, match=r"primary_key` must be specified"):
-        model = make_model(["time_column = ds"])
-        MaterializationProperties.from_model(model)
+    with pytest.raises(ValidationError, match=r"primary_key\n.*Field required"):
+        model = make_model(["time_column ds"])
+
+    with pytest.raises(ConfigError, match=r"`primary_key` must be specified"):
+        model = make_model(["time_column ds", "primary_key ()"])
 
     # primary_key cant be the same as time_column
     with pytest.raises(ConfigError, match=r"primary_key` cannot be just the time_column"):
-        model = make_model(["time_column = ds", "primary_key = ds"])
-        MaterializationProperties.from_model(model)
+        model = make_model(["time_column ds", "primary_key ds"])
 
 
 def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngineAdapterMaker):
-    model: Model = make_model(["time_column = ds", "primary_key = name"], dialect="trino")
+    model: Model = make_model(["time_column ds", "primary_key name"], dialect="trino")
     adapter = make_mocked_engine_adapter(TrinoEngineAdapter)
     strategy = NonIdempotentIncrementalByTimeRangeMaterialization(adapter)
 
@@ -97,15 +97,15 @@ def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             MERGE INTO "test"."snapshot_table" AS "__merge_target__"
             USING (
             SELECT
-                "name" AS "name",
-                "ds" AS "ds"
+                CAST("name" AS VARCHAR) AS "name",
+                CAST("ds" AS TIMESTAMP) AS "ds"
             FROM "upstream"."table" AS "table"
             WHERE
                 "ds" BETWEEN '2020-01-01 00:00:00' AND '2020-01-02 23:59:59.999999'
             ) AS "__MERGE_SOURCE__"
             ON (
-            "__MERGE_SOURCE__"."ds" BETWEEN CAST('2020-01-01 00:00:00+00:00' AS TIMESTAMP WITH TIME ZONE) AND CAST('2020-01-02 23:59:59.999999+00:00' AS TIMESTAMP(6) WITH TIME ZONE)
-            AND "__MERGE_TARGET__"."ds" BETWEEN CAST('2020-01-01 00:00:00+00:00' AS TIMESTAMP WITH TIME ZONE) AND CAST('2020-01-02 23:59:59.999999+00:00' AS TIMESTAMP(6) WITH TIME ZONE)
+                "__MERGE_SOURCE__"."ds" BETWEEN CAST('2020-01-01 00:00:00' AS TIMESTAMP) AND CAST('2020-01-02 23:59:59.999999' AS TIMESTAMP)
+                AND "__MERGE_TARGET__"."ds" BETWEEN CAST('2020-01-01 00:00:00' AS TIMESTAMP) AND CAST('2020-01-02 23:59:59.999999' AS TIMESTAMP)
             )
             AND "__MERGE_TARGET__"."name" = "__MERGE_SOURCE__"."name"
             WHEN MATCHED THEN UPDATE SET "name" = "__MERGE_SOURCE__"."name", "ds" = "__MERGE_SOURCE__"."ds"
@@ -117,7 +117,7 @@ def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
 
 
 def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngineAdapterMaker):
-    model: Model = make_model(["time_column = ds", "primary_key = name"], dialect="trino")
+    model: Model = make_model(["time_column ds", "primary_key name"], dialect="trino")
     adapter = make_mocked_engine_adapter(TrinoEngineAdapter)
     strategy = NonIdempotentIncrementalByTimeRangeMaterialization(adapter)
 
@@ -140,15 +140,15 @@ def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             MERGE INTO "test"."snapshot_table" AS "__merge_target__"
             USING (
             SELECT
-                "name" AS "name",
-                "ds" AS "ds"
+                CAST("name" AS VARCHAR) AS "name",
+                CAST("ds" AS TIMESTAMP) AS "ds"
             FROM "upstream"."table" AS "table"
             WHERE
                 "ds" BETWEEN '2020-01-01 00:00:00' AND '2020-01-02 23:59:59.999999'
             ) AS "__MERGE_SOURCE__"
             ON (
-            "__MERGE_SOURCE__"."ds" BETWEEN CAST('2020-01-01 00:00:00+00:00' AS TIMESTAMP WITH TIME ZONE) AND CAST('2020-01-02 23:59:59.999999+00:00' AS TIMESTAMP(6) WITH TIME ZONE)
-            AND "__MERGE_TARGET__"."ds" BETWEEN CAST('2020-01-01 00:00:00+00:00' AS TIMESTAMP WITH TIME ZONE) AND CAST('2020-01-02 23:59:59.999999+00:00' AS TIMESTAMP(6) WITH TIME ZONE)
+                "__MERGE_SOURCE__"."ds" BETWEEN CAST('2020-01-01 00:00:00' AS TIMESTAMP) AND CAST('2020-01-02 23:59:59.999999' AS TIMESTAMP)
+                AND "__MERGE_TARGET__"."ds" BETWEEN CAST('2020-01-01 00:00:00' AS TIMESTAMP) AND CAST('2020-01-02 23:59:59.999999' AS TIMESTAMP)
             )
             AND "__MERGE_TARGET__"."name" = "__MERGE_SOURCE__"."name"
             WHEN MATCHED THEN UPDATE SET "name" = "__MERGE_SOURCE__"."name", "ds" = "__MERGE_SOURCE__"."ds"
