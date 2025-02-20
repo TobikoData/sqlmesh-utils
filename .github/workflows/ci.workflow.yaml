@@ -14,11 +14,12 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: "read"
-      id-token: "write"
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref_name }}-style
       cancel-in-progress: true
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Base
         uses: ./.github/actions/setup-base
       - name: Check style
@@ -31,19 +32,20 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: "read"
-      id-token: "write"
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref_name }}-unit-tests-${{ matrix.python_version }}
       cancel-in-progress: true
     strategy:
       matrix:
         python_version:
-          - 3.9
-          - 3.10
-          - 3.11
-          - 3.12
-          - 3.13
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+          - '3.13'
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Base
         uses: ./.github/actions/setup-base
         with:
@@ -58,17 +60,19 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: "read"
-      id-token: "write"
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref_name }}-integration-tests
       cancel-in-progress: true
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
       - name: Setup Base
         uses: ./.github/actions/setup-base
-      - name: Setup Docker
-        id: docker
-        uses: docker/setup-docker-action@v4
-      - name: Install dependencies
-        run: make install
+      - name: Checkout upstream SQLMesh
+        uses: actions/checkout@v4
+        with:
+          repository: TobikoData/sqlmesh
+          ref: refs/heads/main
+          path: _sqlmesh_upstream
       - name: Run Integration Tests
         run: make integration-test
