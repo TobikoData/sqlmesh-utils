@@ -1,0 +1,25 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: ruff check --force-exclude --fix --ignore E721 --ignore E741
+        language: python
+        types_or: [python, pyi]
+        require_serial: true
+        files: &files ^(sqlmesh_utils/|tests/)
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff format --force-exclude --line-length 100
+        language: python
+        types_or: [python, pyi]
+        require_serial: true
+        files: *files
+      - id: mypy
+        name: mypy
+        language: system
+        entry: mypy
+        "types": [python]
+        files: *files
+        require_serial: true
+        exclude: ^(tests/fixtures)

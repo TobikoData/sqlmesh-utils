@@ -1,0 +1,48 @@
+[project]
+name = "sqlmesh-utils"
+dynamic = ["version"]
+description = "Utilities for SQLMesh"
+readme = "README.md"
+requires-python = ">= 3.9"
+dependencies = [
+    "sqlmesh"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest_mock",
+    "pytest_xdist",
+    "mypy~=1.13.0",
+    "pre-commit",
+    "ruff~=0.7.0",
+    "sqlmesh[trino]",
+    "sqlmesh[postgres]"
+]
+
+[project.entry-points."sqlmesh.materializations"]
+non_idempotent_incremental_by_time_range = "sqlmesh_utils.materializations:NonIdempotentIncrementalByTimeRangeMaterialization"
+
+[build-system]
+requires = ["setuptools", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+exclude=["tests"]
+
+[tool.setuptools_scm]
+version_file = "sqlmesh_utils/_version.py"
+fallback_version = "0.0.0"
+local_scheme = "no-local-version"
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+markers = [
+    "integration: integration tests that have external dependencies",
+
+    # docker databases
+    "trino: tests that use trino",
+    "postgres: tests that use postgres"
+]
