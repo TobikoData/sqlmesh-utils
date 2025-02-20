@@ -4,15 +4,11 @@ inputs:
   python-version:
     description: "Python version to use"
     required: false
-    default: 3.12
+    default: '3.12'
 
 runs:
   using: "composite"
   steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
     - name: Setup Python
       uses: actions/setup-python@v5
       with:
