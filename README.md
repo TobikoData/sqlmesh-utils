@@ -50,12 +50,13 @@ MODEL (
     name my_db.my_model,
     kind CUSTOM (
         materialization 'non_idempotent_incremental_by_time_range',
-        materialization_properties (
-            time_column = event_timestamp,
-            primary_key (event_id, event_source)
-        )
+        time_column = event_timestamp,
+        primary_key (event_id, event_source)
     )
 );
+
+SELECT event_id, event_source, event_data, event_timestamp
+FROM upstream.table
 ```
 
 The properties are as follows:
