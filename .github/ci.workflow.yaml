@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+jobs:
+
+  style:
+    name: Style
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: "read"
+      id-token: "write"
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref_name }}-style
+      cancel-in-progress: true
+    steps:
+      - name: Setup Base
+        uses: ./.github/actions/setup-base
+      - name: Check style
+        run: make style
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    needs: style
+    timeout-minutes: 30
+    permissions:
+      contents: "read"
+      id-token: "write"
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref_name }}-unit-tests-${{ matrix.python_version }}
+      cancel-in-progress: true
+    strategy:
+      matrix:
+        python_version:
+          - 3.9
+          - 3.10
+          - 3.11
+          - 3.12
+          - 3.13
+    steps:
+      - name: Setup Base
+        uses: ./.github/actions/setup-base
+        with:
+          python-version: ${{ matrix.python_version }}
+      - name: Run Unit Tests
+        run: make test
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: style
+    timeout-minutes: 30
+    permissions:
+      contents: "read"
+      id-token: "write"
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref_name }}-integration-tests
+      cancel-in-progress: true
+    steps:
+      - name: Setup Base
+        uses: ./.github/actions/setup-base
+      - name: Setup Docker
+        id: docker
+        uses: docker/setup-docker-action@v4
+      - name: Install dependencies
+        run: make install
+      - name: Run Integration Tests
+        run: make integration-test
