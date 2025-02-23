@@ -19,6 +19,9 @@ install-pre-commit:
 style:
 	pre-commit run --all-files
 
+clean:
+	rm -fr *.egg-info test-results .cache _sqlmesh_upstream logs .mypy_cache .pytest_cache .ruff_cache dist
+
 package:
 	pip3 install build && python3 -m build
 
