@@ -47,8 +47,10 @@ def test_basic_usage(project: Project):
             name {project.test_schema}.model,
             kind CUSTOM (
                 materialization 'non_idempotent_incremental_by_time_range',
-                time_column event_timestamp,
-                primary_key (event_id, event_source),
+                materialization_properties (
+                    time_column = event_timestamp,
+                    primary_key = (event_id, event_source)
+                ),
                 batch_size 1,
                 batch_concurrency 1
             ),
@@ -137,8 +139,10 @@ def test_partial_restatement(project: Project):
             name {project.test_schema}.model,
             kind CUSTOM (
                 materialization 'non_idempotent_incremental_by_time_range',
-                time_column event_timestamp,
-                primary_key (event_id, event_source),
+                materialization_properties (
+                    time_column = event_timestamp,
+                    primary_key = (event_id, event_source),
+                ),
                 batch_size 1,
                 batch_concurrency 1
             ),

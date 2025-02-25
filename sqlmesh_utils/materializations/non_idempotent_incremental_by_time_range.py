@@ -6,38 +6,35 @@ from sqlmesh.core.model.kind import TimeColumn
 from sqlglot import exp
 from sqlmesh.utils.date import make_inclusive
 from sqlmesh.utils.errors import ConfigError, SQLMeshError
-from pydantic import field_validator, model_validator, ValidationInfo
+from pydantic import model_validator
 from sqlmesh.utils.pydantic import list_of_fields_validator
 from sqlmesh.utils.date import TimeLike
 from sqlmesh.core.engine_adapter.base import MERGE_SOURCE_ALIAS, MERGE_TARGET_ALIAS
 from sqlmesh import CustomKind
 from sqlmesh.utils import columns_to_types_all_known
-from sqlglot.optimizer.simplify import gen
-import sqlmesh.core.dialect as d
-from sqlmesh.core.model.kind import _property
 
 if t.TYPE_CHECKING:
     from sqlmesh.core.engine_adapter._typing import QueryOrDF
 
 
 class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
-    time_column: TimeColumn
+    _time_column: TimeColumn
     # this is deliberately primary_key instead of unique_key to direct away from INCREMENTAL_BY_UNIQUE_KEY
-    primary_key: t.List[exp.Expression]
-
-    _time_column_validator = TimeColumn.validator()
-
-    @field_validator("primary_key", mode="before")
-    @classmethod
-    def _validate_primary_key(cls, value: t.Any, info: ValidationInfo) -> t.Any:
-        expressions = list_of_fields_validator(value, info.data)
-        if not expressions:
-            raise ConfigError("`primary_key` must be specified")
-
-        return expressions
+    _primary_key: t.List[exp.Expression]
 
     @model_validator(mode="after")
     def _validate_model(self):
+        self._time_column = TimeColumn.create(
+            self.materialization_properties.get("time_column"), dialect=self.dialect
+        )
+
+        pk_expressions = list_of_fields_validator(
+            self.materialization_properties.get("primary_key"), dict(dialect=self.dialect)
+        )
+        if not pk_expressions:
+            raise ConfigError("`primary_key` must be specified")
+        self._primary_key = pk_expressions
+
         time_column_present_in_primary_key = self.time_column.column in {
             col for expr in self.primary_key for col in expr.find_all(exp.Column)
         }
@@ -50,24 +47,12 @@ class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
         return self
 
     @property
-    def data_hash_values(self) -> t.List[t.Optional[str]]:
-        return [
-            *super().data_hash_values,
-            gen(self.time_column.column),
-            self.time_column.format,
-            *(gen(k) for k in self.primary_key),
-        ]
+    def time_column(self) -> TimeColumn:
+        return self._time_column
 
-    def to_expression(
-        self, expressions: t.Optional[t.List[exp.Expression]] = None, **kwargs: t.Any
-    ) -> d.ModelKind:
-        return super().to_expression(
-            expressions=[
-                *(expressions or []),
-                self.time_column.to_property(kwargs.get("dialect") or ""),
-                _property(name="primary_key", value=self.primary_key),
-            ]
-        )
+    @property
+    def primary_key(self) -> t.List[exp.Expression]:
+        return self._primary_key
 
 
 class NonIdempotentIncrementalByTimeRangeMaterialization(
