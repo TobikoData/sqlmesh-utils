@@ -50,8 +50,10 @@ MODEL (
     name my_db.my_model,
     kind CUSTOM (
         materialization 'non_idempotent_incremental_by_time_range',
-        time_column event_timestamp,
-        primary_key (event_id, event_source)
+        materialization_properties (
+            time_column = event_timestamp,
+            primary_key = (event_id, event_source)
+        )
     )
 );
 
