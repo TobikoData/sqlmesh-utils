@@ -1,4 +1,4 @@
-install:
+install-dev:
 	pip install -e ".[dev]"
 
 test:

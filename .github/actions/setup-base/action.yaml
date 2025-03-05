@@ -16,4 +16,4 @@ runs:
         cache: 'pip'
     - name: Install dependencies
       shell: bash
-      run: make install
+      run: make install-dev

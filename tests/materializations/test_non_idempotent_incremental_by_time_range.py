@@ -51,6 +51,9 @@ def test_kind(make_model: ModelMaker):
     model = make_model(["time_column = ds", "primary_key = (id, ds)"])
     assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
 
+    assert model.partitioned_by == [exp.to_column("ds", quoted=True)]
+    assert model.kind.partition_by_time_column
+
     assert model.kind.time_column.column == exp.to_column("ds", quoted=True)
     assert model.kind.primary_key == [
         exp.to_column("id", quoted=True),
@@ -157,3 +160,13 @@ def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             dialect=adapter.dialect,
         ).sql(dialect=adapter.dialect)
     ]
+
+
+def test_partition_by_time_column_opt_out(make_model: ModelMaker):
+    model = make_model(
+        ["time_column = ds", "primary_key = name", "partition_by_time_column = false"]
+    )
+
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
+    assert not model.kind.partition_by_time_column
+    assert model.partitioned_by == []

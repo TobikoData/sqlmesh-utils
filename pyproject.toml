@@ -5,7 +5,7 @@ description = "Utilities for SQLMesh"
 readme = "README.md"
 requires-python = ">= 3.9"
 dependencies = [
-    "sqlmesh>=0.160.0"
+    "sqlmesh>=0.163.0"
 ]
 
 [project.optional-dependencies]
