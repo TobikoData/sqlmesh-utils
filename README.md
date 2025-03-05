@@ -65,7 +65,7 @@ The properties are as follows:
 
 #### time_column
 
-This is the column in the dataset that contains the timestamp. It follows the [same syntax](https://sqlmesh.readthedocs.io/en/latest/concepts/models/model_kinds/#time-column) as upstream `INCREMENTAL_BY_TIME_RANGE`.
+This is the column in the dataset that contains the timestamp. It follows the [same syntax](https://sqlmesh.readthedocs.io/en/latest/concepts/models/model_kinds/#time-column) as upstream `INCREMENTAL_BY_TIME_RANGE` and also the same rules with regards to respecting the project [time_column_format](https://sqlmesh.readthedocs.io/en/stable/reference/configuration/#environments) property and being automatically added to the model `partition_by` field list.
 
 #### primary_key
 
@@ -74,3 +74,22 @@ This is the column or combination of columns that uniquely identifies a record.
 The columns listed here are used in the `ON` clause of the SQL Merge to join the source and target datasets.
 
 Note that the `time_column` is **not** automatically injected into this list (to allow timestamps on records to be updated), so if the `time_column` does actually form part of the primary key in your dataset then it needs to be added here.
+
+#### partition_by_time_column
+
+By default, the `time_column` will get added to the list of fields in the model `partitioned_by` property, causing it to be included in the table partition key. This may be undesirable in some circumstances.
+
+To opt out of this behaviour, you can set `partition_by_time_column = false` like so:
+
+```
+MODEL (
+    name my_db.my_model,
+    kind CUSTOM (
+        materialization 'non_idempotent_incremental_by_time_range',
+        materialization_properties (
+            ...,
+            partition_by_time_column = false
+        )
+    )
+);
+```

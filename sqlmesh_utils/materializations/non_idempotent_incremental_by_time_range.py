@@ -7,7 +7,7 @@ from sqlglot import exp
 from sqlmesh.utils.date import make_inclusive
 from sqlmesh.utils.errors import ConfigError, SQLMeshError
 from pydantic import model_validator
-from sqlmesh.utils.pydantic import list_of_fields_validator
+from sqlmesh.utils.pydantic import list_of_fields_validator, bool_validator
 from sqlmesh.utils.date import TimeLike
 from sqlmesh.core.engine_adapter.base import MERGE_SOURCE_ALIAS, MERGE_TARGET_ALIAS
 from sqlmesh import CustomKind
@@ -21,6 +21,8 @@ class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
     _time_column: TimeColumn
     # this is deliberately primary_key instead of unique_key to direct away from INCREMENTAL_BY_UNIQUE_KEY
     _primary_key: t.List[exp.Expression]
+
+    _partition_by_time_column: bool
 
     @model_validator(mode="after")
     def _validate_model(self):
@@ -44,6 +46,10 @@ class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
                 "`primary_key` cannot be just the time_column. Please list the columns that when combined, uniquely identify a row"
             )
 
+        self._partition_by_time_column = bool_validator(
+            self.materialization_properties.get("partition_by_time_column", True)
+        )
+
         return self
 
     @property
@@ -53,6 +59,10 @@ class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
     @property
     def primary_key(self) -> t.List[exp.Expression]:
         return self._primary_key
+
+    @property
+    def partition_by_time_column(self) -> bool:
+        return self._partition_by_time_column
 
 
 class NonIdempotentIncrementalByTimeRangeMaterialization(
