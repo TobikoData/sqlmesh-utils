@@ -30,7 +30,7 @@ def test_basic_usage(project: Project):
     }
 
     project.engine_adapter.create_table(
-        upstream_table_name, columns_to_types=upstream_table_columns
+        upstream_table_name, target_columns_to_types=upstream_table_columns
     )
     project.engine_adapter.insert_append(
         upstream_table_name,
@@ -122,7 +122,7 @@ def test_partial_restatement(project: Project):
     }
 
     project.engine_adapter.create_table(
-        upstream_table_name, columns_to_types=upstream_table_columns
+        upstream_table_name, target_columns_to_types=upstream_table_columns
     )
     project.engine_adapter.insert_append(
         upstream_table_name,
@@ -174,7 +174,7 @@ def test_partial_restatement(project: Project):
     # change upstream data
     project.engine_adapter.drop_table(upstream_table_name)
     project.engine_adapter.create_table(
-        upstream_table_name, columns_to_types=upstream_table_columns
+        upstream_table_name, target_columns_to_types=upstream_table_columns
     )
     project.engine_adapter.insert_append(
         upstream_table_name,
