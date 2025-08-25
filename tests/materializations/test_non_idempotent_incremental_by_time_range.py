@@ -92,9 +92,11 @@ def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
         is_first_insert=True,
         start=start,
         end=end,
+        render_kwargs={},
     )
 
     assert to_sql_calls(adapter) == [
+        'DESCRIBE "test"."snapshot_table"',
         parse_one(
             """
             MERGE INTO "test"."snapshot_table" AS "__merge_target__"
@@ -115,7 +117,7 @@ def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             WHEN NOT MATCHED THEN INSERT ("name", "ds") VALUES ("__MERGE_SOURCE__"."name", "__MERGE_SOURCE__"."ds")
         """,
             dialect=adapter.dialect,
-        ).sql(dialect=adapter.dialect)
+        ).sql(dialect=adapter.dialect),
     ]
 
 
@@ -135,6 +137,7 @@ def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
         model=model,
         start=start,
         end=end,
+        render_kwargs={},
     )
 
     assert to_sql_calls(adapter) == [
@@ -158,7 +161,7 @@ def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             WHEN NOT MATCHED THEN INSERT ("name", "ds") VALUES ("__MERGE_SOURCE__"."name", "__MERGE_SOURCE__"."ds")
         """,
             dialect=adapter.dialect,
-        ).sql(dialect=adapter.dialect)
+        ).sql(dialect=adapter.dialect),
     ]
 
 

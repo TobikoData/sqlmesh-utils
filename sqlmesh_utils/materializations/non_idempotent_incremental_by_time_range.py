@@ -11,7 +11,6 @@ from sqlmesh.utils.pydantic import list_of_fields_validator, bool_validator
 from sqlmesh.utils.date import TimeLike
 from sqlmesh.core.engine_adapter.base import MERGE_SOURCE_ALIAS, MERGE_TARGET_ALIAS
 from sqlmesh import CustomKind
-from sqlmesh.utils import columns_to_types_all_known
 
 if t.TYPE_CHECKING:
     from sqlmesh.core.engine_adapter._typing import QueryOrDF
@@ -76,6 +75,7 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(
         query_or_df: QueryOrDF,
         model: Model,
         is_first_insert: bool,
+        render_kwargs: t.Dict[str, t.Any],
         **kwargs: t.Any,
     ) -> None:
         # sanity check
@@ -88,9 +88,15 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(
         start: TimeLike = kwargs["start"]
         end: TimeLike = kwargs["end"]
 
-        columns_to_types = model.columns_to_types
-        if not columns_to_types or not columns_to_types_all_known(columns_to_types):
-            columns_to_types = self.adapter.columns(table_name)
+        if is_first_insert and not self.adapter.table_exists(table_name):
+            self.adapter.ctas(
+                table_name=table_name,
+                query_or_df=model.ctas_query(**render_kwargs),
+            )
+
+        columns_to_types, source_columns = self._get_target_and_source_columns(
+            model, table_name, render_kwargs=render_kwargs
+        )
 
         low, high = [
             model.convert_to_time_column(dt, columns_to_types)
@@ -116,9 +122,10 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(
         self.adapter.merge(
             target_table=table_name,
             source_table=query_or_df,
-            columns_to_types=columns_to_types,
+            target_columns_to_types=columns_to_types,
             unique_key=model.kind.primary_key,
             merge_filter=exp.and_(*betweens),
+            source_columns=source_columns,
         )
 
     def append(
@@ -126,6 +133,7 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(
         table_name: str,
         query_or_df: QueryOrDF,
         model: Model,
+        render_kwargs: t.Dict[str, t.Any],
         **kwargs: t.Any,
     ) -> None:
         self.insert(
@@ -133,5 +141,6 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(
             query_or_df=query_or_df,
             model=model,
             is_first_insert=False,
+            render_kwargs=render_kwargs,
             **kwargs,
         )
