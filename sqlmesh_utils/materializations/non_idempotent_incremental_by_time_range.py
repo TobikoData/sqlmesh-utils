@@ -92,6 +92,7 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(
             self.adapter.ctas(
                 table_name=table_name,
                 query_or_df=model.ctas_query(**render_kwargs),
+                table_properties=kwargs.get("physical_properties", model.physical_properties),
             )
 
         columns_to_types, source_columns = self._get_target_and_source_columns(
