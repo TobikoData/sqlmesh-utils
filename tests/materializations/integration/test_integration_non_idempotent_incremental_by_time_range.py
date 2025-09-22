@@ -342,7 +342,7 @@ def test_physical_properties_integration(project: Project):
             render_kwargs={},
         )
 
-    # Assert that CTAS was called with table_properties
+    # Assert that CTAS was called with table_properties and partitioned_by
     assert len(ctas_calls) == 1
     ctas_kwargs = ctas_calls[0]
 
@@ -351,3 +351,10 @@ def test_physical_properties_integration(project: Project):
 
     assert table_props is not None
     assert "extra_props" in table_props
+
+    assert "partitioned_by" in ctas_kwargs
+    partitioned_by = ctas_kwargs["partitioned_by"]
+    assert partitioned_by == [
+        exp.Column(this=exp.Identifier(this="category", quoted=True)),
+        exp.Column(this=exp.Identifier(this="borrowed_at", quoted=True)),
+    ]
