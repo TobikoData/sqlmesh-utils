@@ -3,11 +3,16 @@ import typing as t
 from sqlmesh import CustomMaterialization
 from sqlmesh.core.model import Model
 from sqlmesh.core.model.kind import TimeColumn
+import sqlmesh.core.dialect as d
 from sqlglot import exp
 from sqlmesh.utils.date import make_inclusive
 from sqlmesh.utils.errors import ConfigError, SQLMeshError
 from pydantic import model_validator
-from sqlmesh.utils.pydantic import list_of_fields_validator, bool_validator
+from sqlmesh.utils.pydantic import (
+    bool_validator,
+    list_of_fields_validator,
+    validate_expression,
+)
 from sqlmesh.utils.date import TimeLike
 from sqlmesh.core.engine_adapter.base import MERGE_SOURCE_ALIAS, MERGE_TARGET_ALIAS
 from sqlmesh import CustomKind
@@ -22,6 +27,26 @@ class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
     _primary_key: t.List[exp.Expression]
 
     _partition_by_time_column: bool
+    _when_matched: t.Optional[exp.Whens]
+
+    def _parse_when_matched(self, value: t.Any) -> t.Optional[exp.Whens]:
+        if value is None:
+            return None
+
+        if isinstance(value, list):
+            value = " ".join(value)
+
+        if isinstance(value, str):
+            value = value.strip()
+            if value.startswith("("):
+                value = value[1:-1]
+            value = t.cast(exp.Whens, d.parse_one(value, into=exp.Whens, dialect=self.dialect))
+
+        value = validate_expression(value, dialect=self.dialect)
+        return t.cast(
+            exp.Whens,
+            value.transform(d.replace_merge_table_aliases, dialect=self.dialect),
+        )
 
     @model_validator(mode="after")
     def _validate_model(self):
@@ -49,6 +74,10 @@ class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
             self.materialization_properties.get("partition_by_time_column", True)
         )
 
+        self._when_matched = self._parse_when_matched(
+            self.materialization_properties.get("when_matched")
+        )
+
         return self
 
     @property
@@ -62,6 +91,10 @@ class NonIdempotentIncrementalByTimeRangeKind(CustomKind):
     @property
     def partition_by_time_column(self) -> bool:
         return self._partition_by_time_column
+
+    @property
+    def when_matched(self) -> t.Optional[exp.Whens]:
+        return self._when_matched
 
 
 class NonIdempotentIncrementalByTimeRangeMaterialization(
@@ -130,6 +163,7 @@ class NonIdempotentIncrementalByTimeRangeMaterialization(
             source_table=query_or_df,
             target_columns_to_types=columns_to_types,
             unique_key=model.kind.primary_key,
+            when_matched=model.kind.when_matched,
             merge_filter=exp.and_(*betweens),
             source_columns=source_columns,
         )

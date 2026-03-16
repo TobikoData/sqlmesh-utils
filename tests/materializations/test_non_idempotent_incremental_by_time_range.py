@@ -59,6 +59,16 @@ def test_kind(make_model: ModelMaker):
         exp.to_column("id", quoted=True),
         exp.to_column("ds", quoted=True),
     ]
+    assert model.kind.when_matched is None
+
+    model = make_model(
+        [
+            "time_column = ds",
+            "primary_key = (id, ds)",
+            "when_matched = 'when matched then update set target.name = source.name'",
+        ]
+    )
+    assert model.kind.when_matched is not None
 
     # required fields
     with pytest.raises(ConfigError, match=r"Invalid time_column"):
@@ -163,6 +173,83 @@ def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             dialect=adapter.dialect,
         ).sql(dialect=adapter.dialect),
     ]
+
+
+def test_insert_with_when_matched(
+    make_model: ModelMaker, make_mocked_engine_adapter: MockedEngineAdapterMaker
+):
+    model: Model = make_model(
+        [
+            "time_column = ds",
+            "primary_key = name",
+            "when_matched = 'when matched then update set target.name = source.name'",
+        ],
+        dialect="trino",
+    )
+    adapter = make_mocked_engine_adapter(TrinoEngineAdapter)
+    strategy = NonIdempotentIncrementalByTimeRangeMaterialization(adapter)
+
+    start = to_timestamp("2020-01-01")
+    end = to_timestamp("2020-01-03")
+
+    strategy.insert(
+        "test.snapshot_table",
+        query_or_df=model.render_query(
+            start=start, end=end, execution_time=now(), runtime_stage=RuntimeStage.EVALUATING
+        ),
+        model=model,
+        is_first_insert=False,
+        start=start,
+        end=end,
+        render_kwargs={},
+    )
+
+    assert to_sql_calls(adapter) == [
+        parse_one(
+            """
+            MERGE INTO "test"."snapshot_table" AS "__merge_target__"
+            USING (
+            SELECT
+                CAST("name" AS VARCHAR) AS "name",
+                CAST("ds" AS TIMESTAMP) AS "ds"
+            FROM "upstream"."table" AS "table"
+            WHERE
+                "ds" BETWEEN '2020-01-01 00:00:00' AND '2020-01-02 23:59:59.999999'
+            ) AS "__MERGE_SOURCE__"
+            ON (
+                "__MERGE_SOURCE__"."ds" BETWEEN CAST('2020-01-01 00:00:00' AS TIMESTAMP) AND CAST('2020-01-02 23:59:59.999999' AS TIMESTAMP)
+                AND "__MERGE_TARGET__"."ds" BETWEEN CAST('2020-01-01 00:00:00' AS TIMESTAMP) AND CAST('2020-01-02 23:59:59.999999' AS TIMESTAMP)
+            )
+            AND "__MERGE_TARGET__"."name" = "__MERGE_SOURCE__"."name"
+            WHEN MATCHED THEN UPDATE SET "__MERGE_TARGET__"."name" = "__MERGE_SOURCE__"."name"
+            WHEN NOT MATCHED THEN INSERT ("name", "ds") VALUES ("__MERGE_SOURCE__"."name", "__MERGE_SOURCE__"."ds")
+        """,
+            dialect=adapter.dialect,
+        ).sql(dialect=adapter.dialect),
+    ]
+
+
+def test_when_matched_multiple_clauses(make_model: ModelMaker):
+    model = make_model(
+        [
+            "time_column = ds",
+            "primary_key = (id, ds)",
+            "when_matched = 'when matched and source.name is null then delete when matched then update set target.name = source.name'",
+        ]
+    )
+    assert model.kind.when_matched is not None
+    assert len(model.kind.when_matched.expressions) == 2
+
+
+def test_when_matched_invalid_syntax(make_model: ModelMaker):
+    with pytest.raises(Exception):
+        make_model(
+            [
+                "time_column = ds",
+                "primary_key = (id, ds)",
+                "when_matched = 'this is not valid sql'",
+            ]
+        )
 
 
 def test_partition_by_time_column_opt_out(make_model: ModelMaker):
