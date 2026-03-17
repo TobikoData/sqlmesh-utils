@@ -10,7 +10,6 @@ from sqlmesh_utils.materializations.non_idempotent_incremental_by_time_range imp
 from tests.materializations.conftest import to_sql_calls, MockedEngineAdapterMaker
 from sqlmesh.core.engine_adapter.trino import TrinoEngineAdapter
 from sqlmesh.utils.errors import ConfigError
-from pydantic import ValidationError
 from sqlmesh.utils.date import to_timestamp, now
 from sqlmesh.core.macros import RuntimeStage
 
@@ -21,8 +20,9 @@ ModelMaker = t.Callable[..., Model]
 def make_model() -> ModelMaker:
     def _make(properties: t.Union[str, t.List[str]], dialect: t.Optional[str] = None) -> Model:
         if isinstance(properties, list):
-            properties = ",\n".join(properties) + ","
+            properties = ",\n".join(properties)
 
+        properties_sql = f"materialization_properties ({properties})," if properties else ""
         dialect_sql = f"dialect {dialect}," if dialect else ""
 
         expressions = d.parse(f"""
@@ -30,7 +30,7 @@ def make_model() -> ModelMaker:
             name test.model,
             kind CUSTOM (
                 materialization 'non_idempotent_incremental_by_time_range',
-                {properties}
+                {properties_sql}
                 batch_size 1,
                 batch_concurrency 1
             ),
@@ -48,8 +48,11 @@ def make_model() -> ModelMaker:
 
 def test_kind(make_model: ModelMaker):
     # basic usage
-    model = make_model(["time_column ds", "primary_key (id, ds)"])
+    model = make_model(["time_column = ds", "primary_key = (id, ds)"])
     assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
+
+    assert model.partitioned_by == [exp.to_column("ds", quoted=True)]
+    assert model.kind.partition_by_time_column
 
     assert model.kind.time_column.column == exp.to_column("ds", quoted=True)
     assert model.kind.primary_key == [
@@ -58,22 +61,22 @@ def test_kind(make_model: ModelMaker):
     ]
 
     # required fields
-    with pytest.raises(ValidationError, match=r"time_column\n.*Field required"):
+    with pytest.raises(ConfigError, match=r"Invalid time_column"):
         model = make_model([])
 
-    with pytest.raises(ValidationError, match=r"primary_key\n.*Field required"):
-        model = make_model(["time_column ds"])
+    with pytest.raises(ConfigError, match=r"`primary_key` must be specified"):
+        model = make_model(["time_column = ds"])
 
     with pytest.raises(ConfigError, match=r"`primary_key` must be specified"):
-        model = make_model(["time_column ds", "primary_key ()"])
+        model = make_model(["time_column = ds", "primary_key = ()"])
 
     # primary_key cant be the same as time_column
     with pytest.raises(ConfigError, match=r"primary_key` cannot be just the time_column"):
-        model = make_model(["time_column ds", "primary_key ds"])
+        model = make_model(["time_column = ds", "primary_key = ds"])
 
 
 def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngineAdapterMaker):
-    model: Model = make_model(["time_column ds", "primary_key name"], dialect="trino")
+    model: Model = make_model(["time_column = ds", "primary_key = name"], dialect="trino")
     adapter = make_mocked_engine_adapter(TrinoEngineAdapter)
     strategy = NonIdempotentIncrementalByTimeRangeMaterialization(adapter)
 
@@ -89,9 +92,11 @@ def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
         is_first_insert=True,
         start=start,
         end=end,
+        render_kwargs={},
     )
 
     assert to_sql_calls(adapter) == [
+        'DESCRIBE "test"."snapshot_table"',
         parse_one(
             """
             MERGE INTO "test"."snapshot_table" AS "__merge_target__"
@@ -112,12 +117,12 @@ def test_insert(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             WHEN NOT MATCHED THEN INSERT ("name", "ds") VALUES ("__MERGE_SOURCE__"."name", "__MERGE_SOURCE__"."ds")
         """,
             dialect=adapter.dialect,
-        ).sql(dialect=adapter.dialect)
+        ).sql(dialect=adapter.dialect),
     ]
 
 
 def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngineAdapterMaker):
-    model: Model = make_model(["time_column ds", "primary_key name"], dialect="trino")
+    model: Model = make_model(["time_column = ds", "primary_key = name"], dialect="trino")
     adapter = make_mocked_engine_adapter(TrinoEngineAdapter)
     strategy = NonIdempotentIncrementalByTimeRangeMaterialization(adapter)
 
@@ -132,6 +137,7 @@ def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
         model=model,
         start=start,
         end=end,
+        render_kwargs={},
     )
 
     assert to_sql_calls(adapter) == [
@@ -155,5 +161,15 @@ def test_append(make_model: ModelMaker, make_mocked_engine_adapter: MockedEngine
             WHEN NOT MATCHED THEN INSERT ("name", "ds") VALUES ("__MERGE_SOURCE__"."name", "__MERGE_SOURCE__"."ds")
         """,
             dialect=adapter.dialect,
-        ).sql(dialect=adapter.dialect)
+        ).sql(dialect=adapter.dialect),
     ]
+
+
+def test_partition_by_time_column_opt_out(make_model: ModelMaker):
+    model = make_model(
+        ["time_column = ds", "primary_key = name", "partition_by_time_column = false"]
+    )
+
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
+    assert not model.kind.partition_by_time_column
+    assert model.partitioned_by == []
