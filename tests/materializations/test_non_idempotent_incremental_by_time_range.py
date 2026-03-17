@@ -59,6 +59,7 @@ def test_kind(make_model: ModelMaker):
         exp.to_column("id", quoted=True),
         exp.to_column("ds", quoted=True),
     ]
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
     assert model.kind.when_matched is None
 
     model = make_model(
@@ -68,6 +69,7 @@ def test_kind(make_model: ModelMaker):
             "when_matched = 'when matched then update set target.name = source.name'",
         ]
     )
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
     assert model.kind.when_matched is not None
 
     # required fields
@@ -237,8 +239,45 @@ def test_when_matched_multiple_clauses(make_model: ModelMaker):
             "when_matched = 'when matched and source.name is null then delete when matched then update set target.name = source.name'",
         ]
     )
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
     assert model.kind.when_matched is not None
     assert len(model.kind.when_matched.expressions) == 2
+
+
+def test_when_matched_as_list(make_model: ModelMaker):
+    model = make_model(
+        [
+            "time_column = ds",
+            "primary_key = (id, ds)",
+            "when_matched = ['when matched then', 'update set target.name = source.name']",
+        ]
+    )
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
+    assert model.kind.when_matched is not None
+
+
+def test_when_matched_with_parens(make_model: ModelMaker):
+    model = make_model(
+        [
+            "time_column = ds",
+            "primary_key = (id, ds)",
+            "when_matched = '(when matched then update set target.name = source.name)'",
+        ]
+    )
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
+    assert model.kind.when_matched is not None
+
+
+def test_when_matched_with_whitespace(make_model: ModelMaker):
+    model = make_model(
+        [
+            "time_column = ds",
+            "primary_key = (id, ds)",
+            "when_matched = '  when matched then update set target.name = source.name  '",
+        ]
+    )
+    assert isinstance(model.kind, NonIdempotentIncrementalByTimeRangeKind)
+    assert model.kind.when_matched is not None
 
 
 def test_when_matched_invalid_syntax(make_model: ModelMaker):
