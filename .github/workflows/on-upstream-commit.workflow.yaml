@@ -1,0 +1,44 @@
+name: SQLMesh Commit
+
+on:
+  # For local testing
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Commit SHA or branch from SQLMesh repo
+        default: 'main'
+        required: true
+
+  # To be triggered from CircleCI via the GitHub API
+  repository_dispatch:
+    types: ["commit"]
+
+jobs:
+  tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: "read"
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref_name }}-tests
+      cancel-in-progress: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Base
+        uses: ./.github/actions/setup-base
+      - name: Checkout upstream SQLMesh
+        uses: actions/checkout@v4
+        with:
+          repository: TobikoData/sqlmesh
+          ref: ${{ github.event.client_payload.commit_sha || inputs.commit_sha || 'main' }}
+          path: _sqlmesh_upstream
+      - name: Install upstream SQLMesh into local env
+        run: |
+          cd _sqlmesh_upstream
+          pip install -e .
+      - name: Run Unit Tests
+        run: make test
+      - name: Run Integration Tests
+        run: make integration-test
